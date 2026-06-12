@@ -140,6 +140,15 @@ connectStepped()
 local processedLabels = {}
 local collectedLogs = {}
 
+local runService = game:GetService("RunService")
+local stats = game:GetService("Stats")
+
+local function getPing()
+	local ping = stats.Network.ServerStatsItem["Data Ping"]:GetValueString()
+	local pingNum = ping:match("%d+%.?%d*")
+	return tonumber(pingNum) or 0
+end
+
 local function cleanLog(text)
 	local clean = text:gsub("<[^>]+>", "")
 	local msg = clean:match("%d+:%d+:%d+ %-%- (.+)")
@@ -156,39 +165,41 @@ local function addButtons(textLabel)
 	if not parent then return end
 	if parent:FindFirstChild("__CopyBtn") then return end
 
-	local function makeButton(name, text, bgColor, anchorX, anchorY, posXScale, posXOffset, posYScale, posYOffset)
-		local btn = Instance.new("TextButton")
-		btn.Name = name
-		btn.Text = text
-		btn.Size = UDim2.new(0, 36, 0, 16)
-		btn.AnchorPoint = Vector2.new(anchorX, anchorY)
-		btn.Position = UDim2.new(posXScale, posXOffset, posYScale, posYOffset)
-		btn.BackgroundColor3 = bgColor
-		btn.TextColor3 = Color3.fromRGB(255, 255, 255)
-		btn.BorderSizePixel = 0
-		btn.TextSize = 9
-		btn.Font = Enum.Font.GothamBold
-		btn.ZIndex = 1000000000
-		btn.Parent = parent
+	local copyBtn = Instance.new("ImageButton")
+	copyBtn.Name = "__CopyBtn"
+	copyBtn.Image = "rbxassetid://90434151822042"
+	copyBtn.Size = UDim2.new(0, 18, 0, 18)
+	copyBtn.AnchorPoint = Vector2.new(1, 0)
+	copyBtn.Position = UDim2.new(1, -4, 0, 2)
+	copyBtn.BackgroundTransparency = 1
+	copyBtn.BorderSizePixel = 0
+	copyBtn.ZIndex = 1000000000
+	copyBtn.Parent = parent
 
-		local corner = Instance.new("UICorner")
-		corner.CornerRadius = UDim.new(0, 3)
-		corner.Parent = btn
+	local checkLabel = Instance.new("TextLabel")
+	checkLabel.Size = UDim2.new(1, 0, 1, 0)
+	checkLabel.BackgroundTransparency = 1
+	checkLabel.TextColor3 = Color3.fromRGB(0, 200, 0)
+	checkLabel.TextSize = 11
+	checkLabel.Font = Enum.Font.GothamBold
+	checkLabel.Text = ""
+	checkLabel.ZIndex = 1000000001
+	checkLabel.Visible = false
+	checkLabel.Parent = copyBtn
 
-		return btn
-	end
-
-	local copyBtn = makeButton("__CopyBtn", "Copy", Color3.fromRGB(50, 50, 50), 1, 0.5, 1, -6, 0.5, 0)
+	textLabel.Size = UDim2.new(1, -26, 1, 0)
 
 	copyBtn.MouseButton1Click:Connect(function()
 		local logText = cleanLog(textLabel.Text)
 		setclipboard(logText)
-		copyBtn.Text = "✓"
-		copyBtn.BackgroundColor3 = Color3.fromRGB(0, 170, 0)
+		copyBtn.Image = ""
+		checkLabel.Text = "✓"
+		checkLabel.Visible = true
 		task.delay(1.5, function()
 			if copyBtn then
-				copyBtn.Text = "Copy"
-				copyBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+				copyBtn.Image = "rbxassetid://90434151822042"
+				checkLabel.Text = ""
+				checkLabel.Visible = false
 			end
 		end)
 	end)
@@ -210,75 +221,134 @@ local cmdbarCollapsed = false
 local cmdbarFrame = nil
 local collapseBtn = nil
 local collapsedBtn = nil
+local fpsLabel = nil
+local pingLabel = nil
+local fpsConnection = nil
+
+local function startFpsPingCounter()
+	if fpsConnection then return end
+	local lastTime = tick()
+	local frameCount = 0
+	fpsConnection = runService.RenderStepped:Connect(function()
+		frameCount = frameCount + 1
+		local now = tick()
+		if now - lastTime >= 1 then
+			local fps = frameCount / (now - lastTime)
+			local ping = getPing()
+			if fpsLabel then
+				fpsLabel.Text = string.format('<font color="rgb(255,140,0)">FPS: </font><font color="rgb(255,255,255)">%.1f</font>', fps)
+			end
+			if pingLabel then
+				pingLabel.Text = string.format('<font color="rgb(255,140,0)">Ping: </font><font color="rgb(255,255,255)">%dms</font>', ping)
+			end
+			frameCount = 0
+			lastTime = now
+		end
+	end)
+end
+
+local function stopFpsPingCounter()
+	if fpsConnection then
+		fpsConnection:Disconnect()
+		fpsConnection = nil
+	end
+end
 
 local function createCmdbar(parentWindow)
 	if parentWindow:FindFirstChild("CmdbarFrame") then return end
 
+	fpsLabel = Instance.new("TextLabel")
+	fpsLabel.Name = "FpsLabel"
+	fpsLabel.Size = UDim2.new(0, 90, 0, 24)
+	fpsLabel.Position = UDim2.new(0, 514, 0, 38)
+	fpsLabel.BackgroundTransparency = 1
+	fpsLabel.BorderSizePixel = 0
+	fpsLabel.RichText = true
+	fpsLabel.TextSize = 14
+	fpsLabel.Font = Enum.Font.Code
+	fpsLabel.Text = '<font color="rgb(255,140,0)">FPS: </font><font color="rgb(255,255,255)">--</font>'
+	fpsLabel.TextXAlignment = Enum.TextXAlignment.Left
+	fpsLabel.ZIndex = 1000000000
+	fpsLabel.Parent = parentWindow
+
+	pingLabel = Instance.new("TextLabel")
+	pingLabel.Name = "PingLabel"
+	pingLabel.Size = UDim2.new(0, 110, 0, 24)
+	pingLabel.Position = UDim2.new(0, 610, 0, 38)
+	pingLabel.BackgroundTransparency = 1
+	pingLabel.BorderSizePixel = 0
+	pingLabel.RichText = true
+	pingLabel.TextSize = 14
+	pingLabel.Font = Enum.Font.Code
+	pingLabel.Text = '<font color="rgb(255,140,0)">Ping: </font><font color="rgb(255,255,255)">--ms</font>'
+	pingLabel.TextXAlignment = Enum.TextXAlignment.Left
+	pingLabel.ZIndex = 1000000000
+	pingLabel.Parent = parentWindow
+
 	cmdbarFrame = Instance.new("Frame")
 	cmdbarFrame.Name = "CmdbarFrame"
-	cmdbarFrame.Size = UDim2.new(1, 0, 0, 36)
-	cmdbarFrame.Position = UDim2.new(0, 0, 1, -36)
-	cmdbarFrame.BackgroundColor3 = Color3.fromRGB(28, 28, 28)
+	cmdbarFrame.Size = UDim2.new(0, 726, 0, 30)
+	cmdbarFrame.Position = UDim2.new(0, 20, 0, 304)
+	cmdbarFrame.BackgroundColor3 = Color3.fromRGB(54, 54, 54)
 	cmdbarFrame.BorderSizePixel = 0
 	cmdbarFrame.ZIndex = 1000000000
 	cmdbarFrame.Parent = parentWindow
 
-	local outerStroke = Instance.new("UIStroke")
-	outerStroke.Color = Color3.fromRGB(210, 210, 215)
-	outerStroke.Thickness = 1
-	outerStroke.Transparency = 0.3
-	outerStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-	outerStroke.Parent = cmdbarFrame
+	local strokeTop = Instance.new("Frame")
+	strokeTop.BorderSizePixel = 0
+	strokeTop.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+	strokeTop.Size = UDim2.new(0, 726, 0, 2)
+	strokeTop.Position = UDim2.new(0, 0, 0, -2)
+	strokeTop.ZIndex = 1000000001
+	strokeTop.Parent = cmdbarFrame
 
-	local innerBox = Instance.new("Frame")
-	innerBox.Name = "InnerBox"
-	innerBox.Size = UDim2.new(1, -12, 1, -8)
-	innerBox.Position = UDim2.new(0, 6, 0, 4)
-	innerBox.BackgroundColor3 = Color3.fromRGB(22, 22, 22)
-	innerBox.BorderSizePixel = 0
-	innerBox.ZIndex = 1000000001
-	innerBox.Parent = cmdbarFrame
+	local strokeLeft = Instance.new("Frame")
+	strokeLeft.BorderSizePixel = 0
+	strokeLeft.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+	strokeLeft.Size = UDim2.new(0, 2, 0, 32)
+	strokeLeft.Position = UDim2.new(0, -2, 0, -2)
+	strokeLeft.ZIndex = 1000000001
+	strokeLeft.Parent = cmdbarFrame
 
-	local innerCorner = Instance.new("UICorner")
-	innerCorner.CornerRadius = UDim.new(0, 3)
-	innerCorner.Parent = innerBox
-
-	local innerStroke = Instance.new("UIStroke")
-	innerStroke.Color = Color3.fromRGB(200, 200, 210)
-	innerStroke.Thickness = 1
-	innerStroke.Transparency = 0.55
-	innerStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-	innerStroke.Parent = innerBox
+	local strokeRight = Instance.new("Frame")
+	strokeRight.BorderSizePixel = 0
+	strokeRight.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+	strokeRight.Size = UDim2.new(0, 2, 0, 32)
+	strokeRight.Position = UDim2.new(0, 726, 0, -2)
+	strokeRight.ZIndex = 1000000001
+	strokeRight.Parent = cmdbarFrame
 
 	local prompt = Instance.new("TextLabel")
 	prompt.Name = "Prompt"
 	prompt.Size = UDim2.new(0, 20, 1, 0)
-	prompt.Position = UDim2.new(0, 8, 0, 0)
+	prompt.Position = UDim2.new(0, 6, 0, 0)
 	prompt.BackgroundTransparency = 1
 	prompt.Text = ">"
-	prompt.TextColor3 = Color3.fromRGB(190, 190, 195)
-	prompt.TextSize = 14
-	prompt.Font = Enum.Font.RobotoMono
+	prompt.TextColor3 = Color3.fromRGB(197, 197, 197)
+	prompt.TextSize = 15
+	prompt.FontFace = Font.new("rbxasset://fonts/families/Inconsolata.json", Enum.FontWeight.Regular, Enum.FontStyle.Normal)
 	prompt.TextXAlignment = Enum.TextXAlignment.Left
 	prompt.ZIndex = 1000000002
-	prompt.Parent = innerBox
+	prompt.Parent = cmdbarFrame
 
 	local inputBox = Instance.new("TextBox")
 	inputBox.Name = "Cmdbar"
 	inputBox.Size = UDim2.new(1, -34, 1, 0)
 	inputBox.Position = UDim2.new(0, 28, 0, 0)
 	inputBox.BackgroundTransparency = 1
-	inputBox.TextColor3 = Color3.fromRGB(220, 220, 225)
+	inputBox.TextColor3 = Color3.fromRGB(197, 197, 197)
 	inputBox.PlaceholderText = "command line"
-	inputBox.PlaceholderColor3 = Color3.fromRGB(120, 120, 130)
+	inputBox.PlaceholderColor3 = Color3.fromRGB(210, 210, 210)
 	inputBox.Text = ""
-	inputBox.TextSize = 14
-	inputBox.Font = Enum.Font.RobotoMono
+	inputBox.TextSize = 15
+	inputBox.FontFace = Font.new("rbxasset://fonts/families/Inconsolata.json", Enum.FontWeight.Regular, Enum.FontStyle.Normal)
 	inputBox.BorderSizePixel = 0
 	inputBox.ClearTextOnFocus = false
 	inputBox.TextXAlignment = Enum.TextXAlignment.Left
+	inputBox.TextDirection = Enum.TextDirection.LeftToRight
+	inputBox.TextWrapped = true
 	inputBox.ZIndex = 1000000002
-	inputBox.Parent = innerBox
+	inputBox.Parent = cmdbarFrame
 
 	local function executeCommand()
 		local cmd = inputBox.Text
@@ -300,8 +370,8 @@ local function createCmdbar(parentWindow)
 	collapseBtn.Size = UDim2.new(0, 28, 0, 18)
 	collapseBtn.AnchorPoint = Vector2.new(0.5, 1)
 	collapseBtn.Position = UDim2.new(0.5, 0, 0, -4)
-	collapseBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 55)
-	collapseBtn.TextColor3 = Color3.fromRGB(200, 200, 200)
+	collapseBtn.BackgroundColor3 = Color3.fromRGB(54, 54, 54)
+	collapseBtn.TextColor3 = Color3.fromRGB(210, 210, 210)
 	collapseBtn.BorderSizePixel = 0
 	collapseBtn.TextSize = 10
 	collapseBtn.Font = Enum.Font.GothamBold
@@ -318,8 +388,8 @@ local function createCmdbar(parentWindow)
 	collapsedBtn.Size = UDim2.new(0, 52, 0, 22)
 	collapsedBtn.AnchorPoint = Vector2.new(0.5, 1)
 	collapsedBtn.Position = UDim2.new(0.5, 0, 1, -4)
-	collapsedBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 45)
-	collapsedBtn.TextColor3 = Color3.fromRGB(200, 200, 200)
+	collapsedBtn.BackgroundColor3 = Color3.fromRGB(54, 54, 54)
+	collapsedBtn.TextColor3 = Color3.fromRGB(210, 210, 210)
 	collapsedBtn.BorderSizePixel = 0
 	collapsedBtn.TextSize = 11
 	collapsedBtn.Font = Enum.Font.GothamBold
@@ -362,6 +432,7 @@ local function checkConsoleState()
 				if collapsedBtn then
 					collapsedBtn.Visible = cmdbarCollapsed
 				end
+				startFpsPingCounter()
 				for _, v in pairs(devConsole:GetDescendants()) do
 					tryAdd(v)
 				end
@@ -373,6 +444,20 @@ local function checkConsoleState()
 				if collapsedBtn then
 					collapsedBtn.Visible = false
 				end
+				stopFpsPingCounter()
+				if fpsLabel then
+					fpsLabel.Visible = false
+				end
+				if pingLabel then
+					pingLabel.Visible = false
+				end
+			end
+
+			if fpsLabel then
+				fpsLabel.Visible = isVisible
+			end
+			if pingLabel then
+				pingLabel.Visible = isVisible
 			end
 		end
 	end
