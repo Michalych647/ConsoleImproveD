@@ -137,17 +137,22 @@ connectSignals()
 connectStepped()
 
 
-local processedLabels = {}
-local collectedLogs = {}
 
-local runService = game:GetService("RunService")
-local stats = game:GetService("Stats")
 
-local function getPing()
-	local ping = stats.Network.ServerStatsItem["Data Ping"]:GetValueString()
-	local pingNum = ping:match("%d+%.?%d*")
-	return tonumber(pingNum) or 0
-end
+
+local StarterGui = game:GetService("StarterGui")
+local CoreGui = game:GetService("CoreGui")
+local RunService = game:GetService("RunService")
+
+local processedLabels = setmetatable({}, {__mode = "k"})
+local isConsoleOpen = false
+local cmdbarCollapsed = false
+local cmdbarFrame = nil
+local collapseBtn = nil
+local collapsedBtn = nil
+local devConsoleMaster = nil
+local devConsoleWindow = nil
+local descendantConnection = nil
 
 local function cleanLog(text)
 	local clean = text:gsub("<[^>]+>", "")
@@ -156,14 +161,15 @@ local function cleanLog(text)
 end
 
 local function addButtons(textLabel)
+	if not isConsoleOpen then return end
 	if processedLabels[textLabel] then return end
 	if not textLabel.Text:match("%d+:%d+:%d+") then return end
-
-	processedLabels[textLabel] = true
 
 	local parent = textLabel.Parent
 	if not parent then return end
 	if parent:FindFirstChild("__CopyBtn") then return end
+
+	processedLabels[textLabel] = true
 
 	local copyBtn = Instance.new("ImageButton")
 	copyBtn.Name = "__CopyBtn"
@@ -203,87 +209,30 @@ local function addButtons(textLabel)
 			end
 		end)
 	end)
-
-	table.insert(collectedLogs, textLabel)
 end
 
 local function tryAdd(v)
-	if v:IsA("TextLabel") then
+	if v:IsA("TextLabel") and not v:GetAttribute("Tracked") then
+		v:SetAttribute("Tracked", true)
 		v.RichText = true
 		addButtons(v)
 		v:GetPropertyChangedSignal("Text"):Connect(function()
-			addButtons(v)
+			if isConsoleOpen then
+				addButtons(v)
+			end
 		end)
 	end
 end
 
-local cmdbarCollapsed = false
-local cmdbarFrame = nil
-local collapseBtn = nil
-local collapsedBtn = nil
-local fpsLabel = nil
-local pingLabel = nil
-local fpsConnection = nil
-
-local function startFpsPingCounter()
-	if fpsConnection then return end
-	local lastTime = tick()
-	local frameCount = 0
-	fpsConnection = runService.RenderStepped:Connect(function()
-		frameCount = frameCount + 1
-		local now = tick()
-		if now - lastTime >= 1 then
-			local fps = frameCount / (now - lastTime)
-			local ping = getPing()
-			if fpsLabel then
-				fpsLabel.Text = string.format('<font color="rgb(255,140,0)">FPS: </font><font color="rgb(255,255,255)">%.1f</font>', fps)
-			end
-			if pingLabel then
-				pingLabel.Text = string.format('<font color="rgb(255,140,0)">Ping: </font><font color="rgb(255,255,255)">%dms</font>', ping)
-			end
-			frameCount = 0
-			lastTime = now
-		end
-	end)
-end
-
-local function stopFpsPingCounter()
-	if fpsConnection then
-		fpsConnection:Disconnect()
-		fpsConnection = nil
+local function scanLogs()
+	if not devConsoleMaster then return end
+	for _, v in ipairs(devConsoleMaster:GetDescendants()) do
+		tryAdd(v)
 	end
 end
 
 local function createCmdbar(parentWindow)
 	if parentWindow:FindFirstChild("CmdbarFrame") then return end
-
-	fpsLabel = Instance.new("TextLabel")
-	fpsLabel.Name = "FpsLabel"
-	fpsLabel.Size = UDim2.new(0, 90, 0, 24)
-	fpsLabel.Position = UDim2.new(0, 514, 0, 38)
-	fpsLabel.BackgroundTransparency = 1
-	fpsLabel.BorderSizePixel = 0
-	fpsLabel.RichText = true
-	fpsLabel.TextSize = 14
-	fpsLabel.Font = Enum.Font.Code
-	fpsLabel.Text = '<font color="rgb(255,140,0)">FPS: </font><font color="rgb(255,255,255)">--</font>'
-	fpsLabel.TextXAlignment = Enum.TextXAlignment.Left
-	fpsLabel.ZIndex = 1000000000
-	fpsLabel.Parent = parentWindow
-
-	pingLabel = Instance.new("TextLabel")
-	pingLabel.Name = "PingLabel"
-	pingLabel.Size = UDim2.new(0, 110, 0, 24)
-	pingLabel.Position = UDim2.new(0, 610, 0, 38)
-	pingLabel.BackgroundTransparency = 1
-	pingLabel.BorderSizePixel = 0
-	pingLabel.RichText = true
-	pingLabel.TextSize = 14
-	pingLabel.Font = Enum.Font.Code
-	pingLabel.Text = '<font color="rgb(255,140,0)">Ping: </font><font color="rgb(255,255,255)">--ms</font>'
-	pingLabel.TextXAlignment = Enum.TextXAlignment.Left
-	pingLabel.ZIndex = 1000000000
-	pingLabel.Parent = parentWindow
 
 	cmdbarFrame = Instance.new("Frame")
 	cmdbarFrame.Name = "CmdbarFrame"
@@ -414,58 +363,42 @@ local function createCmdbar(parentWindow)
 	end)
 end
 
-local wasVisible = false
-
-local function checkConsoleState()
-	local devConsole = game:GetService("CoreGui"):FindFirstChild("DevConsoleMaster")
-	if devConsole then
-		local devConsoleWindow = devConsole:FindFirstChild("DevConsoleWindow")
-		if devConsoleWindow then
-			local isVisible = devConsoleWindow.Visible
-
-			if isVisible and not wasVisible then
-				wasVisible = true
-				createCmdbar(devConsoleWindow)
-				if cmdbarFrame then
-					cmdbarFrame.Visible = not cmdbarCollapsed
-				end
-				if collapsedBtn then
-					collapsedBtn.Visible = cmdbarCollapsed
-				end
-				startFpsPingCounter()
-				for _, v in pairs(devConsole:GetDescendants()) do
-					tryAdd(v)
-				end
-			elseif not isVisible and wasVisible then
-				wasVisible = false
-				if cmdbarFrame then
-					cmdbarFrame.Visible = false
-				end
-				if collapsedBtn then
-					collapsedBtn.Visible = false
-				end
-				stopFpsPingCounter()
-				if fpsLabel then
-					fpsLabel.Visible = false
-				end
-				if pingLabel then
-					pingLabel.Visible = false
-				end
-			end
-
-			if fpsLabel then
-				fpsLabel.Visible = isVisible
-			end
-			if pingLabel then
-				pingLabel.Visible = isVisible
-			end
-		end
+local function toggleUI(visible)
+	if cmdbarFrame then
+		cmdbarFrame.Visible = visible and not cmdbarCollapsed
+	end
+	if collapsedBtn then
+		collapsedBtn.Visible = visible and cmdbarCollapsed
 	end
 end
 
-game:GetService("RunService").Heartbeat:Connect(checkConsoleState)
+RunService.RenderStepped:Connect(function()
+	local success, visible = pcall(function()
+		return StarterGui:GetCore("DevConsoleVisible")
+	end)
 
-game:GetService("CoreGui").DescendantAdded:Connect(function(v)
-	task.wait()
-	tryAdd(v)
+	if success and visible ~= isConsoleOpen then
+		isConsoleOpen = visible
+		
+		if isConsoleOpen then
+			if not devConsoleMaster then
+				devConsoleMaster = CoreGui:FindFirstChild("DevConsoleMaster")
+				if devConsoleMaster then
+					devConsoleWindow = devConsoleMaster:FindFirstChild("DevConsoleWindow")
+					if devConsoleWindow then
+						createCmdbar(devConsoleWindow)
+					end
+					if not descendantConnection then
+						descendantConnection = devConsoleMaster.DescendantAdded:Connect(function(v)
+							task.defer(tryAdd, v)
+						end)
+					end
+				end
+			end
+			toggleUI(true)
+			scanLogs()
+		else
+			toggleUI(false)
+		end
+	end
 end)
